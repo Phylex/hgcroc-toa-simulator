@@ -57,7 +57,8 @@ class TDC:
                 raise ValueError(
                     "The 0th index must be 0 as the first 1 switches on immediately")
         else:
-            self._buffer_delay_times = [nominal_buffer_delay_time + np.random.normal(scale=delay_time_rms)
+            self._buffer_delay_times = [np.random.normal(loc=nominal_buffer_delay_time,
+                                                         scale=delay_time_rms)
                                         for _ in range(buffer_count)]
             self._buffer_delay_times.insert(0, 0.)
         self._ref = 0
@@ -198,9 +199,13 @@ class TDC:
             f"Activation time for buffer {buffer_output_index} = {self._time_bin_edges_with_factors[buffer_output_index]}")
         return self._time_bin_edges_with_factors[buffer_output_index]
 
-    def get_buffer_delay(self, buffer_index: int) -> float:
-        return self._time_bin_edges_with_factors[buffer_index + 1] \
-            - self._time_bin_edges_with_factors[buffer_index]
+    @staticmethod
+    def encode(tdc_thermometer_code: list[int]):
+        """
+        Convert the list of buffer output states into a number that can be used by the
+        calculation logic for the final ToA/ToT values
+        """
+        return sum(tdc_thermometer_code) - 1
 
 
 class Rgen:
@@ -240,10 +245,11 @@ class Rgen:
         self.logger.debug(
             f"generating residue between t={rgen_set_time} and ctdc buffer "
             f"{start_out_buffer_output_index + 1}")
-        if start_out_buffer_output_index > len(self._delay_mismatch):
-            rgen_set_time = reset_override_time
-        rgen_reset_time = ctdc.time_of_activation(
-            start_out_buffer_output_index + 1) + self._delay_mismatch[start_out_buffer_output_index]
+        if start_out_buffer_output_index >= len(self._delay_mismatch):
+            rgen_reset_time = reset_override_time
+        else:
+            rgen_reset_time = ctdc.time_of_activation(
+                start_out_buffer_output_index + 1) + self._delay_mismatch[start_out_buffer_output_index]
         self.logger.debug(
             f"stop time: {rgen_reset_time} for a residue of {rgen_reset_time - rgen_set_time}")
         return rgen_reset_time - rgen_set_time
@@ -325,12 +331,18 @@ class ToA:
                  amp_max_signal_time: float,
                  amp_buffer_distortion_factor_rms: float,
                  amp_or_gate_distortion_factor_rms: float,
+                 ctdc_sig_ref_weight: float = 0.1,
+                 ctdc_channel_trim_weight: float = 0.1,
+                 ftdc_sig_ref_weight: float = 0.1,
+                 ftdc_channel_trim_weight: float = 0.1,
                  ):
         self.counter = Counter(frequency=clock_frequency,
                                jitter_rms_ps=clock_jitter_rms)
         self.ctdc = TDC(name='CTDC', delay_time_rms=ctdc_delay_time_rms,
                         buffer_count=ctdc_buffer_count,
-                        nominal_buffer_delay_time=ctdc_delay_time)
+                        nominal_buffer_delay_time=ctdc_delay_time,
+                        max_chan_wise_impact=ctdc_channel_trim_weight,
+                        max_ref_sig_impact=ctdc_sig_ref_weight)
         self.rgen = Rgen(delay_mismatch=rgen_delay_mismatch,
                          ctdc_buffer_count=ctdc_buffer_count)
         self.t_amp = TimeAmplifier(
@@ -341,7 +353,9 @@ class ToA:
         self.ftdc = TDC(name='FTDC',
                         delay_time_rms=ftdc_delay_time_rms,
                         buffer_count=ftdc_buffer_count,
-                        nominal_buffer_delay_time=ftdc_delay_time)
+                        nominal_buffer_delay_time=ftdc_delay_time,
+                        max_chan_wise_impact=ftdc_channel_trim_weight,
+                        max_ref_sig_impact=ftdc_sig_ref_weight)
         self.ctdc.sig = 0
         self.ctdc.ref = 0
         self.ctdc.chan_toa = 31
@@ -350,7 +364,7 @@ class ToA:
         self.ftdc.chan_toa = 31
         self.logger = logging.getLogger('ToA')
 
-    def convert(self, time_of_arrival: float, BX: int = 0):
+    def convert(self, time_of_arrival: float, BX: int = 0, plot_data=False):
         time_of_next_counter_edge, counter_val = self.counter.convert(
             time_of_arrival)
         ctdc_code = self.ctdc.convert(
@@ -366,22 +380,33 @@ class ToA:
             start_time=0, stop_time=amplified_residue)
 
         # convert the TDC outputs into binary, shift them all into the
-        # right position and add them to get the final toa result
-        ctdc_num = sum(ctdc_code)
-        ctdc_num = ctdc_num << self.t_amp.amplification_gain_code
-        self.logger.debug(
-            f"before ftdc subtraction ctdc_code = {bin(ctdc_num)}")
-        ftdc_num = sum(ftdc_code)
-        self.logger.debug(f"ftdc_code = {bin(ftdc_num)}")
-        ftdc_num -= self.t_amp._amplification_gain
-        tdc_code = ctdc_num - ftdc_num
-        self.logger.debug(f"tdc_code = {bin(tdc_code)}")
+        ctdc_num = TDC.encode(ctdc_code)
+        self.logger.debug(f"encoded CTDC output: {ctdc_num} = {bin(ctdc_num)}")
+        ftdc_num = TDC.encode(ftdc_code)
+        self.logger.debug(f"encoded FTDC output: {ftdc_num} = {bin(ftdc_num)}")
+        # the two is added to the ctdc num as this is the code that the ftdc uses as the stop
+        # signal for it's conversion
+        ctdc_num = (ctdc_num + 2) << self.t_amp.amplification_gain_code
+        self.logger.debug(f"shifted CTDC output: {ctdc_num}")
+        tdc_num = ctdc_num - ftdc_num
+        self.logger.debug(f"tdc_code = {tdc_num}")
         counter_val = (counter_val + 1) << 8
         self.logger.debug(
-            f"ToA-Output before truncation = {bin(counter_val - tdc_code)}")
+            f"ToA-Output before truncation = {bin(counter_val - tdc_num)}")
         self.logger.debug(
-            f"ToA-Output after truncation = {(counter_val - tdc_code) & 0x3ff}")
-        return (counter_val - tdc_code) & 0x3ff
+            f"ToA-Output after truncation = {(counter_val - tdc_num) & 0x3ff}")
+        if plot_data:
+            return (time_of_next_counter_edge,
+                    copy(self.ctdc._time_bin_edges_with_factors),
+                    ctdc_code,
+                    residue,
+                    amplified_residue,
+                    copy(self.ftdc._time_bin_edges_with_factors),
+                    ftdc_code,
+                    ftdc_num,
+                    ctdc_num,
+                    counter_val)
+        return (counter_val - tdc_num) & 0x3ff
 
 
 if __name__ == "__main__":
@@ -413,12 +438,15 @@ if __name__ == "__main__":
         # generates the pulse train
         amp_or_gate_distortion_factor_rms=0.01,
         # 'period' of the pulse train
-        amp_max_signal_time=800.
+        amp_max_signal_time=800.,
+        ctdc_sig_ref_weight=0.2,
+        ftdc_sig_ref_weight=0.2
     )
     toa.t_amp.amplification_gain_code = 3
+    toa.ctdc.sig = 30
     codes = []
     times = []
-    for event_t in range(0, 100000, 10):
+    for event_t in range(0, 300, 3):
         codes.append(toa.convert(event_t))
         print(event_t, codes[-1])
         times.append(event_t)

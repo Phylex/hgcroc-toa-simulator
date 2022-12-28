@@ -1,2 +1,5 @@
 *.pdf
 *.svg
+*.log
+/venv
+/__pycache__
