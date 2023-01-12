@@ -283,17 +283,89 @@ def test_statistical_sig_scan():
         amp_max_signal_time=800.
     )
     toa.t_amp.amplification_gain_code = 3
-    for sig in range(0, 32, 8):
+    cmap = plt.cm.viridis
+    norm = colors.Normalize(vmin=0, vmax=32)
+    sigs = [0, 8, 16, 24, 31]
+    fig, axes = plt.subplots(5, 1, figsize=(10, 10), layout='constrained')
+    for sig, ax in zip(sigs, axes[::-1]):
         toa.ctdc.sig = sig
-        codes = []
-        times = []
+        code = []
+        time = []
         for event_t in np.random.rand(100000) * 25000:
-            codes.append(toa.convert(event_t))
-            times.append(event_t)
-        hist, _, _ = plt.hist(codes, bins=range(1024))
-        plt.plot(range(1023), np.cumsum(hist) / sum(hist) * np.mean(hist))
-        plt.savefig(f"toa-histsig-{sig}.pdf")
-        plt.close()
+            code.append(toa.convert(event_t))
+            time.append(event_t)
+        hist, _, _ = ax.hist(code,
+                             bins=np.arange(1024) - 0.5,
+                             label=f"SIG = {sig}",
+                             color=cmap(norm(sig)))
+        # ax.set_xlabel('TDC code')
+        ax.sharex(axes[0])
+        ax.set_ylabel('Code occupancy')
+        ax.legend()
+    axes[0].set_title(
+        'Simulated TDC-code occupancy for 100000 uniformly distributed triggers')
+    axes[-1].set_xlabel('TDC Code')
+    fig.savefig(f"toa-hist-sig-scan.pdf")
+    plt.close(fig)
+
+
+def test_statistical_ref_scan():
+    """
+    Function to test the implementation of the ToA
+    """
+    toa = ToA(
+        # frequency of the clock that gives the edges to the counter
+        clock_frequency=160_000_000,
+        # rms of the jitter of the clock in picoseconds
+        clock_jitter_rms=5.,
+        # amount of buffers in the ctdc delay line
+        ctdc_buffer_count=38,
+        # nominal delay time of a single buffer
+        ctdc_delay_time=196.,
+        ctdc_delay_time_rms=2.,                   # rms of the delay time of a buffer
+        # number of buffers in the ftdc delay line
+        ftdc_buffer_count=36,
+        ftdc_delay_time=196.,                     # nominal delay of the ftdc buffers
+        ftdc_delay_time_rms=2.,                   # rms of the ftdc buffer delay time
+        # rms of the mismatch of the delay time of the for the start and
+        # stop signal
+        rgen_delay_mismatch=2.,
+        # max amplification factor of the amplifier
+        amp_max_ampfactor=8,
+        # rms of the signal distortion factor from one buffer to the other in
+        # the amplifier delay line
+        amp_buffer_distortion_factor_rms=0.01,
+        # rms of the signal distortion caused by the multi input or gate that
+        # generates the pulse train
+        amp_or_gate_distortion_factor_rms=0.01,
+        # 'period' of the pulse train
+        amp_max_signal_time=800.
+    )
+    toa.t_amp.amplification_gain_code = 3
+    cmap = plt.cm.viridis
+    norm = colors.Normalize(vmin=0, vmax=32)
+    refs = [0, 8, 16, 24, 31]
+    fig, axes = plt.subplots(5, 1, figsize=(10, 10), layout='constrained')
+    for ref, ax in zip(refs, axes[::-1]):
+        toa.ctdc.ref = ref
+        code = []
+        time = []
+        for event_t in np.random.rand(100000) * 25000:
+            code.append(toa.convert(event_t))
+            time.append(event_t)
+        hist, _, _ = ax.hist(code,
+                             bins=np.arange(1024) - 0.5,
+                             label=f"REF = {ref}",
+                             color=cmap(norm(ref)))
+        # ax.set_xlabel('TDC code')
+        ax.sharex(axes[0])
+        ax.set_ylabel('Code occupancy')
+        ax.legend()
+    axes[0].set_title(
+        'Simulated TDC-code occupancy for 100000 uniformly distributed triggers')
+    axes[-1].set_xlabel('TDC Code')
+    fig.savefig(f"toa-hist-ref-scan.pdf")
+    plt.close(fig)
 
 
 if __name__ == "__main__":
@@ -301,3 +373,4 @@ if __name__ == "__main__":
     test_ref_sig_scan()
     test_statistical_toa_scan()
     test_statistical_sig_scan()
+    test_statistical_ref_scan()
