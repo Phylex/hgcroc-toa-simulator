@@ -8,6 +8,7 @@ from . import __version__
 import click
 import yaml
 from .utils import generate_default_toa_config
+from .toa import ToA
 
 
 log_level_dict = {'DEBUG': logging.DEBUG,
@@ -28,14 +29,15 @@ log_level_dict = {'DEBUG': logging.DEBUG,
 @click.option('-fl', '--loglevel',
               type=click.Choice(log_level_dict.keys(),
                                 case_sensitive=False),
-              default=logging.INFO,
+              default='INFO',
               help='Set the loglevel for the log file')
 @click.option('-c', '--config-file', type=click.File('r'),
               default=None,
               help='config file holding the configuration of the ToA')
 @click.version_option(__version__)
 @click.pass_context
-def cli(ctx, verbose, logfile: click.Path, loglevel: int, config_file: click.File):
+def cli(ctx, verbose, logfile: click.Path,
+        loglevel: int, config_file: click.File):
     """
     Simulate and explore the ToA as implemented in the HGCROCv3
     """
@@ -52,12 +54,16 @@ def cli(ctx, verbose, logfile: click.Path, loglevel: int, config_file: click.Fil
 
 
 @cli.command('plot-timing')
-@click.option('-o', '--output-file', type=click.Path(dir_okay=False),
+@click.option('-o', '--output-file',
+              type=click.Path(dir_okay=False),
+              default='toa-timing.pdf',
               help='file to write the plot to')
-def plot_timing():
+@click.pass_context
+def plot_timing(ctx, output_file):
     """
     plot a diagram showing the internal timing of the two stage delay line tdc
     """
+    click.echo(ctx.obj)
     logger = logging.getLogger('plot-timing')
     toa = ToA(
         # frequency of the clock that gives the edges to the counter
@@ -98,7 +104,7 @@ def plot_timing():
         print(event_t, codes[-1])
         times.append(event_t)
         logging.debug("")
-    plt.plot(times, codes)
-    plt.xlabel('TDC Code')
-    plt.ylabel('count')
-    plt.savefig('toa-scan.pdf')
+    # plt.plot(times, codes)
+    # plt.xlabel('TDC Code')
+    # plt.ylabel('count')
+    # plt.savefig('toa-scan.pdf')
