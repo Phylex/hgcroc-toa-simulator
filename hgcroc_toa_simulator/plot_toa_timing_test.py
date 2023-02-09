@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
-from toa import ToA
+from .toa import ToA
 
 
 # use qt backend
@@ -11,14 +11,16 @@ matplotlib.rcParams['toolbar'] = 'None'
 
 def plot_toa_internals(
         outputname,
+        event_t,
         time_of_next_counter_edge,
         ctdc_buffer_activation_times,
-        ctdc_nominal_switching_times,
+        ctdc_nominal_switching_time,
         ctdc_code,
         ctdc_num,
         residue,
         amplified_residue,
         ftdc_buffer_activation_times,
+        ftdc_nominal_switching_time,
         ftdc_code,
         ftdc_num,
         amplification_gain_code,
@@ -101,7 +103,7 @@ def plot_toa_internals(
                       'boxstyle': 'round'})
 
     # plot the reference marks for the delay line buffers of the ctdc
-    if ctdc_nominal_switching_times is not None:
+    if ctdc_nominal_switching_time is not None:
         for i, code in enumerate(ctdc_code[1:]):
             if code == 0:
                 COLOR = 'black'
@@ -110,7 +112,7 @@ def plot_toa_internals(
                 buff_counter += 1
             else:
                 COLOR = 'red'
-            ax.plot([event_t + (i + 1) * ctdc_nominal_switching_times, event_t + (i + 1) * ctdc_nominal_switching_times],
+            ax.plot([event_t + (i + 1) * ctdc_nominal_switching_time, event_t + (i + 1) * ctdc_nominal_switching_time],
                     buffer_y_dim, '--', color=COLOR, alpha=0.3)
 
     # plot the residue that is generated before being sent to the time amplifier
@@ -144,14 +146,27 @@ def plot_toa_internals(
     ax.vlines([time_of_next_counter_edge + amplified_residue], [prc[2]+.6],
               [prc[-2]+.5], linestyle='--', color='grey')
 
-    # plot the FTDC buffers
+    # plot the reference marks for the delay line buffers of the ctdc
     buffer_y_dim = [prc[-2] - .5, prc[-2] + .5]
+    if ftdc_nominal_switching_time is not None:
+        for i, code in enumerate(ftdc_code[1:20]):
+            if code == 0:
+                COLOR = 'black'
+                if buff_counter >= 2:
+                    NUM = '0'
+                buff_counter += 1
+            else:
+                COLOR = 'red'
+            ax.plot([time_of_next_counter_edge + (i + 1) * ftdc_nominal_switching_time, time_of_next_counter_edge + (i + 1) * ftdc_nominal_switching_time],
+                    buffer_y_dim, '--', color=COLOR, alpha=0.3)
+
+    # plot the FTDC buffers
     y_tick_locations.append(prc[-2])
     y_tick_labels.append('FTDC buffer\nactiviation')
     average_ftdc_delay_time = np.mean(list(map(lambda x: x[1] - x[0], zip(
         ftdc_buffer_activation_times[:-1], ftdc_buffer_activation_times[1:]))))
     for i, (ftdc_bit, ftdc_b_delay_time) in enumerate(
-            zip(ftdc_code[1:18], ftdc_buffer_activation_times[1:18])):
+            zip(ftdc_code[1:20], ftdc_buffer_activation_times[1:20])):
         FMT = '-'
         NUM = '1'
         COLOR = 'black'
@@ -237,7 +252,7 @@ if __name__ == "__main__":
      ftdc_buffer_activation_times, ftdc_code, ftdc_num,
      ctdc_num, counter_val) = toa.convert(event_t, plot_data=True)
     plot_toa_internals('toa-timing.pdf',
-                       ctdc_nominal_switching_times=196.,
+                       ctdc_nominal_switching_time=196.,
                        time_of_next_counter_edge=time_of_next_counter_edge,
                        sig=toa.ctdc.sig,
                        fsig=toa.ftdc.sig,

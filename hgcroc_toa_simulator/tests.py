@@ -3,15 +3,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colors
 from matplotlib import cm
-from toa import TDC
-from toa import ToA
+from .toa import TDC
+from .toa import ToA
 
 
 def test_single_stage_tc():
     """
     Test the characteristics of the single stage TDC
     """
-    buffer_count = 32
+    buffer_count = 40
     lsb_delay_time = 24.4 * (buffer_count + 1)
     nominal_max_time = buffer_count * lsb_delay_time
     delay_time = lsb_delay_time * 0.01
@@ -126,7 +126,7 @@ def test_full_toa_scan():
         # rms of the jitter of the clock in picoseconds
         clock_jitter_rms=5.,
         # amount of buffers in the ctdc delay line
-        ctdc_buffer_count=36,
+        ctdc_buffer_count=40,
         # nominal delay time of a single buffer
         ctdc_delay_time=196.,
         ctdc_delay_time_rms=2.,                   # rms of the delay time of a buffer
@@ -167,7 +167,7 @@ def test_ref_sig_scan():
         # rms of the jitter of the clock in picoseconds
         clock_jitter_rms=5.,
         # amount of buffers in the ctdc delay line
-        ctdc_buffer_count=36,
+        ctdc_buffer_count=40,
         # nominal delay time of a single buffer
         ctdc_delay_time=196.,
         ctdc_delay_time_rms=2.,                   # rms of the delay time of a buffer
@@ -216,7 +216,7 @@ def test_statistical_toa_scan():
         # rms of the jitter of the clock in picoseconds
         clock_jitter_rms=5.,
         # amount of buffers in the ctdc delay line
-        ctdc_buffer_count=36,
+        ctdc_buffer_count=40,
         # nominal delay time of a single buffer
         ctdc_delay_time=196.,
         ctdc_delay_time_rms=2.,                   # rms of the delay time of a buffer
@@ -260,7 +260,7 @@ def test_statistical_sig_scan():
         # rms of the jitter of the clock in picoseconds
         clock_jitter_rms=5.,
         # amount of buffers in the ctdc delay line
-        ctdc_buffer_count=36,
+        ctdc_buffer_count=40,
         # nominal delay time of a single buffer
         ctdc_delay_time=196.,
         ctdc_delay_time_rms=2.,                   # rms of the delay time of a buffer
@@ -319,7 +319,7 @@ def test_statistical_ref_scan():
         # rms of the jitter of the clock in picoseconds
         clock_jitter_rms=5.,
         # amount of buffers in the ctdc delay line
-        ctdc_buffer_count=38,
+        ctdc_buffer_count=40,
         # nominal delay time of a single buffer
         ctdc_delay_time=196.,
         ctdc_delay_time_rms=2.,                   # rms of the delay time of a buffer

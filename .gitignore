@@ -2,5 +2,6 @@
 *.svg
 *.log
 /venv
-/__pycache__
+/hgcroc_toa_simulator/__pycache__/
+/__pycache__/
 /*.egg-info

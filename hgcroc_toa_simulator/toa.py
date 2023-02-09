@@ -83,13 +83,15 @@ class TDC:
             raise ValueError(
                 "The REF parameter of the %s TDC is not 0. Set REF to 0 "
                 "before setting the SIG parameter != 0")
+        if self._ref != 0 and sig == 0:
+            return
         if 0 <= sig <= 31:
             self._sig = sig
         else:
             raise ValueError(
                 " SIG outside of range [0, 31]"
             )
-        self._sig_ref_buffer_switching_time_factor = 1 + (
+        self._sig_ref_buffer_switching_time_factor = 1 - (
             self._sig / 32 * self._max_ref_sig_factor)
         self._time_bin_edges_with_factors = self._time_bin_edges * \
             (self._sig_ref_buffer_switching_time_factor +
@@ -117,13 +119,15 @@ class TDC:
             raise ValueError(
                 "The SIG parameter of the %s TDC is not 0. Set SIG to 0 "
                 "before setting the REF parameter != 0")
+        if self._sig != 0 and ref == 0:
+            return
         if 0 <= ref <= 31:
             self._ref = ref
         else:
             raise ValueError(
                 " REF outside of range [0, 31]"
             )
-        self._sig_ref_buffer_switching_time_factor = 1 - (
+        self._sig_ref_buffer_switching_time_factor = 1 + (
             self._ref / 32 * self._max_ref_sig_factor)
         self._time_bin_edges_with_factors = self._time_bin_edges * \
             (self._sig_ref_buffer_switching_time_factor +
@@ -168,7 +172,7 @@ class TDC:
                         doc="Parameter to change the buffer delay time of "
                             "the TDC buffer chain, neutral point is 31")
 
-    def convert(self, start_time: float, stop_time: float, delta_t_uncertainty: float = 0) -> int:
+    def convert(self, start_time: float, stop_time: float, delta_t_uncertainty: float = 0) -> list[int]:
         """
         Calculate the thermometer code produced by the delay line TDC.
         This function does not perform any encoding of the value
@@ -356,6 +360,8 @@ class ToA:
                         nominal_buffer_delay_time=ftdc_delay_time,
                         max_chan_wise_impact=ftdc_channel_trim_weight,
                         max_ref_sig_impact=ftdc_sig_ref_weight)
+        self.nominal_ctdc_delay_time = ctdc_delay_time
+        self.nominal_ftdc_delay_time = ftdc_delay_time
         self.ctdc.sig = 0
         self.ctdc.ref = 0
         self.ctdc.chan_toa = 31
@@ -364,7 +370,8 @@ class ToA:
         self.ftdc.chan_toa = 31
         self.logger = logging.getLogger('ToA')
 
-    def convert(self, time_of_arrival: float, BX: int = 0, plot_data=False):
+    def convert(self, time_of_arrival: float, BX: int = 0, plot_data=False,
+                code_type: str = "toa"):
         time_of_next_counter_edge, counter_val = self.counter.convert(
             time_of_arrival)
         ctdc_code = self.ctdc.convert(
@@ -406,4 +413,8 @@ class ToA:
                     ftdc_num,
                     ctdc_num,
                     counter_val)
+        if code_type == "ctdc":
+            return sum(ctdc_code)
+        if code_type == "ftdc":
+            return sum(ftdc_code)
         return (counter_val - tdc_num) & 0x3ff
