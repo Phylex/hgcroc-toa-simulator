@@ -9,10 +9,14 @@ Installation
 ------------
 .. _installation:
 The code in this repository constitutes a python package so with the current version of this repository
-it can be installed using::
+it can be installed using
+
+::
         pip install .
 
-optionally it can be installed in *editable mode* with::
+optionally it can be installed in *editable mode* with
+
+::
         pip install --editable .
 
 Editable mode allows changes made in the repository code to affect the installed package immediately.
