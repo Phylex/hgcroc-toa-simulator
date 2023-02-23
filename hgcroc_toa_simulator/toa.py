@@ -239,8 +239,8 @@ class Rgen:
     @staticmethod
     def from_parameters(delay_mismatch_rms: float,
                         ctdc_buffer_count: int):
-        delay_mismatch = list(np.random.normal(scale=delay_mismatch_rms,
-                                               size=ctdc_buffer_count - 2))
+        delay_mismatch = [float(np.random.normal(scale=delay_mismatch_rms))
+                          for _ in range(ctdc_buffer_count - 2)]
         return dict(delay_mismatch=delay_mismatch)
 
     def __init__(self, delay_mismatch: list[float]):
@@ -327,7 +327,7 @@ class TimeAmplifier:
                  ):
         self.amplification_buffers_distortion = delay_buffer_distortion_factors
         self._max_amplification_gain = len(
-            self.amplification_buffers_distortion)
+            self.amplification_buffers_distortion) + 1
         self._amplification_gain_code = amplification_gain_code
         self._amplification_gain = 2 ** amplification_gain_code
         self.or_gate_distortion = or_gate_signal_distortion_factors
@@ -341,8 +341,6 @@ class TimeAmplifier:
 
     def _set_amplification_gain(self, code: int):
         assert code >= 0
-        print(code)
-        print(self._max_amplification_gain)
         assert 2 ** code <= self._max_amplification_gain
         self._amplification_gain = 2 ** code
         self._amplification_gain_code = code
@@ -493,7 +491,7 @@ class ToA:
         rgen_params = self.rgen.export_parameters()
         t_amp_params = self.t_amp.export_parameters()
         return {"clock_frequency": counter_params["frequency"],
-                "clock_jitter_rms": counter_params["clock_jitter_rms"],
+                "clock_jitter_rms": counter_params["jitter_rms_ps"],
                 "ctdc_buffer_delays": ctdc_params["buffer_delay_times"],
                 "ctdc_chan_trim_weight": ctdc_params["max_chan_wise_impact"],
                 "ctdc_sig_ref_weight": ctdc_params["max_ref_sig_impact"],
