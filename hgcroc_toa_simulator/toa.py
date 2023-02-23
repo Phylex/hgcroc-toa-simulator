@@ -1,9 +1,10 @@
 from typing import Union
+import yaml
+from pathlib import Path
 from functools import reduce
 from copy import copy
 from operator import mul
 import logging
-import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -17,6 +18,10 @@ class Counter:
         self.period = 10**12 / frequency
         self.frequency = frequency
         self.jitter_rms = jitter_rms_ps
+
+    def export_parameters(self) -> dict:
+        return {"jitter_rms_ps": self.jitter_rms,
+                "frequency": self.frequency}
 
     def convert(self, event_time: float):
         """
@@ -43,24 +48,16 @@ class TDC:
     """
 
     def __init__(self, name: str,
-                 delay_time_rms: Union[float, list],
-                 buffer_count: int = 7,
-                 nominal_buffer_delay_time: float = 195.2,
+                 buffer_delay_times: list[float],
                  max_ref_sig_impact: float = .1,
                  max_chan_wise_impact: float = .1):
         self._name = name
-        self._buffer_count = buffer_count
-        if isinstance(delay_time_rms, list):
-            if delay_time_rms[0] == 0:
-                self._buffer_delay_times = delay_time_rms
-            else:
-                raise ValueError(
-                    "The 0th index must be 0 as the first 1 switches on immediately")
-        else:
-            self._buffer_delay_times = [np.random.normal(loc=nominal_buffer_delay_time,
-                                                         scale=delay_time_rms)
-                                        for _ in range(buffer_count)]
-            self._buffer_delay_times.insert(0, 0.)
+        self._buffer_count = len(buffer_delay_times) - 1
+        if buffer_delay_times[0] != 0:
+            raise ValueError(
+                "The 0th index must be 0 as the first input goes "
+                "'high' immediately")
+        self._buffer_delay_times = buffer_delay_times
         self._ref = 0
         self._max_ref_sig_factor = max_ref_sig_impact
         self._sig = 0
@@ -72,6 +69,26 @@ class TDC:
         self._channel_private_switching_time_factor = 1.
         self._set_chan_toa(0)
         self.logger = logging.getLogger(f'{self._name}')
+
+    @staticmethod
+    def from_parameters(nominal_buffer_delay_time: float,
+                        delay_time_rms: float,
+                        buffer_count: int,
+                        max_ref_sig_impact: float = .1,
+                        max_chan_wise_impact: float = .1
+                        ) -> dict:
+        buffer_delay_times = [np.random.normal(loc=nominal_buffer_delay_time,
+                                               scale=delay_time_rms)
+                              for _ in range(buffer_count)]
+        buffer_delay_times.insert(0, 0.)
+        return dict(buffer_delay_times=buffer_delay_times,
+                    max_ref_sig_impact=max_ref_sig_impact,
+                    max_chan_wise_impact=max_chan_wise_impact)
+
+    def export_parameters(self) -> dict:
+        return {"buffer_delay_times": self._buffer_delay_times,
+                "max_ref_sig_impact": self._max_ref_sig_factor,
+                "max_chan_wise_impact": self._max_chan_toa_factor}
 
     def _set_sig(self, sig: int) -> None:
         """
@@ -204,7 +221,7 @@ class TDC:
         return self._time_bin_edges_with_factors[buffer_output_index]
 
     @staticmethod
-    def encode(tdc_thermometer_code: list[int]):
+    def encode(tdc_thermometer_code: list[int]) -> int:
         """
         Convert the list of buffer output states into a number that can be used by the
         calculation logic for the final ToA/ToT values
@@ -214,10 +231,19 @@ class TDC:
 
 class Rgen:
     """
-    Class representing the residue generator
+    Class representing the residue generator. The residue generator generates
+    the pulse that is sent to the Time Amplifier for amplification and later
+    digitisation in the FTDC.
     """
 
-    def __init__(self, delay_mismatch: Union[float, list], ctdc_buffer_count: int):
+    @staticmethod
+    def from_parameters(delay_mismatch_rms: float,
+                        ctdc_buffer_count: int):
+        delay_mismatch = list(np.random.normal(scale=delay_mismatch_rms,
+                                               size=ctdc_buffer_count - 2))
+        return dict(delay_mismatch=delay_mismatch)
+
+    def __init__(self, delay_mismatch: list[float]):
         """
         Initialise the residue generator. The important thing is to generate the
         mismatch between the two buffers that introduce the \tau_R into the system
@@ -230,13 +256,11 @@ class Rgen:
             the delay
         :type ctdc_buffer_count: int
         """
-        if isinstance(delay_mismatch, list):
-            self._delay_mismatch = delay_mismatch
-        else:
-            self._delay_mismatch = np.array(
-                [np.random.normal(scale=delay_mismatch)
-                 for _ in range(ctdc_buffer_count - 2)])
+        self._delay_mismatch = delay_mismatch
         self.logger = logging.getLogger("Rgen")
+
+    def export_parameters(self):
+        return {"delay_mismatch": self._delay_mismatch}
 
     def generate_residue(self, ctdc: TDC,
                          ctdc_code: list[int],
@@ -261,26 +285,64 @@ class Rgen:
 
 class TimeAmplifier:
     """
-    Class representing the time amplifier of the TDC block
+    Class implementing the behaviour of the time amplifier of the TDC.
+    The time amplifier generates a train of near identical pulses from the
+    pulse passed into it's input. The core of this class is the ``amplify``
+    function that returns the 'on time' of the pulse train for a given input.
     """
+    @staticmethod
+    def from_parameters(
+            max_amplification_gain: int,
+            signal_distortion_factor_rms: float,
+            or_gate_signal_distortion_factor_rms: float,
+            max_signal_time: float,
+            amplification_gain_code: int = 0):
+        """
+        This function makes it possible to initialise the time amplifier from
+        command line parameters. It generates the exact distortions for the
+        amplifier and then constructs the TimeAmp class with these results
 
-    def __init__(self,  max_amplification_gain: int,
-                 signal_distortion_factor_rms: float, or_gate_signal_distortion_factor_rms: float,
-                 max_signal_time: float, amplification_gain_code: int = 0):
+        :param: max_amplification_gain the number of copies that are produced by
+            the amplifier
+        """
         assert max_amplification_gain in [2**n for n in range(10)]
         assert 2 ** amplification_gain_code <= max_amplification_gain
-        self._max_amplification_gain = max_amplification_gain
+        buffer_distortion = [float(np.random.normal(
+            scale=signal_distortion_factor_rms,
+            loc=1)) for _ in range(max_amplification_gain - 1)]
+        or_gate_distortion = [float(np.random.normal(
+            scale=or_gate_signal_distortion_factor_rms,
+            loc=1))
+            for _ in range(max_amplification_gain)]
+        return dict(
+            delay_buffer_distortion_factors=buffer_distortion,
+            or_gate_signal_distortion_factors=or_gate_distortion,
+            max_signal_time=max_signal_time)
+
+    def __init__(self,
+                 delay_buffer_distortion_factors: list[float],
+                 or_gate_signal_distortion_factors: list[float],
+                 max_signal_time: float,
+                 amplification_gain_code: int = 0,
+                 ):
+        self.amplification_buffers_distortion = delay_buffer_distortion_factors
+        self._max_amplification_gain = len(
+            self.amplification_buffers_distortion)
         self._amplification_gain_code = amplification_gain_code
         self._amplification_gain = 2 ** amplification_gain_code
-        self.amplification_buffers_distortion = [np.random.normal(
-            scale=signal_distortion_factor_rms, loc=1) for _ in range(max_amplification_gain - 1)]
-        self.or_gate_distortion = [np.random.normal(
-            scale=or_gate_signal_distortion_factor_rms, loc=1) for _ in range(max_amplification_gain)]
+        self.or_gate_distortion = or_gate_signal_distortion_factors
         self.max_signal_time = max_signal_time
         self.logger = logging.getLogger('TimeAmp')
 
+    def export_parameters(self) -> dict:
+        return {"delay_buffer_distortion_factors": self.amplification_buffers_distortion,
+                "or_gate_signal_distortion_factors": self.or_gate_distortion,
+                "max_signal_time": self.max_signal_time}
+
     def _set_amplification_gain(self, code: int):
         assert code >= 0
+        print(code)
+        print(self._max_amplification_gain)
         assert 2 ** code <= self._max_amplification_gain
         self._amplification_gain = 2 ** code
         self._amplification_gain_code = code
@@ -288,18 +350,19 @@ class TimeAmplifier:
     def _get_amplification_gain(self):
         return copy(self._amplification_gain_code)
 
-    amplification_gain_code = property(fset=_set_amplification_gain,
-                                       fget=_get_amplification_gain,
-                                       doc="code that sets the amplification gain. Gain = 2^code")
+    amplification_gain_code = property(
+        fset=_set_amplification_gain,
+        fget=_get_amplification_gain,
+        doc="code that sets the amplification gain. Gain = 2^code")
 
     def amplify(self, residue: float):
         """
         Calculates the sum of the on-time of all pulses after amplification.
 
-        Calculate the total 'on-time' of the pulse train taking into account the distortion
-        in the buffer chain that performs the pulse replication and the distortion caused by
-        the OR gate that produces the pulse train from the pulses generated by
-        the amplification DLL.
+        Calculate the total 'on-time' of the pulse train taking into account
+        the distortion in the buffer chain that performs the pulse replication
+        and the distortion caused by the OR gate that produces the pulse train
+        from the pulses generated by the amplification DLL.
         """
         self.logger.debug(
             f"Amplifying a residue of {residue} by a nominal factor of {self._amplification_gain}:"
@@ -321,54 +384,127 @@ class TimeAmplifier:
 
 
 class ToA:
-    def __init__(self,
-                 clock_frequency: float,
-                 clock_jitter_rms: float,
-                 ctdc_buffer_count: int,
-                 ctdc_delay_time: float,
-                 ctdc_delay_time_rms: float,
-                 ftdc_buffer_count: int,
-                 ftdc_delay_time: float,
-                 ftdc_delay_time_rms: float,
-                 rgen_delay_mismatch: float,
-                 amp_max_ampfactor: int,
-                 amp_max_signal_time: float,
-                 amp_buffer_distortion_factor_rms: float,
-                 amp_or_gate_distortion_factor_rms: float,
-                 ctdc_sig_ref_weight: float = 0.1,
-                 ctdc_channel_trim_weight: float = 0.1,
-                 ftdc_sig_ref_weight: float = 0.1,
-                 ftdc_channel_trim_weight: float = 0.1,
-                 ):
-        self.counter = Counter(frequency=clock_frequency,
-                               jitter_rms_ps=clock_jitter_rms)
-        self.ctdc = TDC(name='CTDC', delay_time_rms=ctdc_delay_time_rms,
-                        buffer_count=ctdc_buffer_count,
-                        nominal_buffer_delay_time=ctdc_delay_time,
-                        max_chan_wise_impact=ctdc_channel_trim_weight,
-                        max_ref_sig_impact=ctdc_sig_ref_weight)
-        self.rgen = Rgen(delay_mismatch=rgen_delay_mismatch,
-                         ctdc_buffer_count=ctdc_buffer_count)
-        self.t_amp = TimeAmplifier(
+    @staticmethod
+    def from_parameters(
+            clock_frequency: float,
+            clock_jitter_rms: float,
+            ctdc_buffer_count: int,
+            ctdc_delay_time: float,
+            ctdc_delay_time_rms: float,
+            ftdc_buffer_count: int,
+            ftdc_delay_time: float,
+            ftdc_delay_time_rms: float,
+            rgen_delay_mismatch: float,
+            amp_max_ampfactor: int,
+            amp_max_signal_time: float,
+            amp_buffer_distortion_factor_rms: float,
+            amp_or_gate_distortion_factor_rms: float,
+            ctdc_sig_ref_weight: float = 0.1,
+            ctdc_channel_trim_weight: float = 0.1,
+            ftdc_sig_ref_weight: float = 0.1,
+            ftdc_channel_trim_weight: float = 0.1):
+        ctdc_init_params = TDC.from_parameters(
+            nominal_buffer_delay_time=ctdc_delay_time,
+            delay_time_rms=ctdc_delay_time_rms,
+            buffer_count=ctdc_buffer_count,
+            max_ref_sig_impact=ctdc_sig_ref_weight,
+            max_chan_wise_impact=ctdc_channel_trim_weight)
+        ftdc_init_params = TDC.from_parameters(
+            nominal_buffer_delay_time=ftdc_delay_time,
+            delay_time_rms=ftdc_delay_time_rms,
+            buffer_count=ftdc_buffer_count,
+            max_ref_sig_impact=ftdc_sig_ref_weight,
+            max_chan_wise_impact=ftdc_channel_trim_weight)
+        rgen_init_params = Rgen.from_parameters(
+            delay_mismatch_rms=rgen_delay_mismatch,
+            ctdc_buffer_count=ctdc_buffer_count)
+        time_amp_init_params = TimeAmplifier.from_parameters(
             max_amplification_gain=amp_max_ampfactor,
             signal_distortion_factor_rms=amp_buffer_distortion_factor_rms,
             or_gate_signal_distortion_factor_rms=amp_or_gate_distortion_factor_rms,
             max_signal_time=amp_max_signal_time)
-        self.ftdc = TDC(name='FTDC',
-                        delay_time_rms=ftdc_delay_time_rms,
-                        buffer_count=ftdc_buffer_count,
-                        nominal_buffer_delay_time=ftdc_delay_time,
-                        max_chan_wise_impact=ftdc_channel_trim_weight,
-                        max_ref_sig_impact=ftdc_sig_ref_weight)
-        self.nominal_ctdc_delay_time = ctdc_delay_time
-        self.nominal_ftdc_delay_time = ftdc_delay_time
+        return ToA(
+            clock_frequency=clock_frequency,
+            clock_jitter_rms=clock_jitter_rms,
+            ctdc_buffer_delays=ctdc_init_params["buffer_delay_times"],
+            ctdc_sig_ref_weight=ctdc_init_params["max_ref_sig_impact"],
+            ctdc_chan_trim_weight=ctdc_init_params["max_chan_wise_impact"],
+            ftdc_buffer_delays=ftdc_init_params["buffer_delay_times"],
+            ftdc_sig_ref_weight=ftdc_init_params["max_ref_sig_impact"],
+            ftdc_chan_trim_weight=ftdc_init_params["max_chan_wise_impact"],
+            rgen_delay_mismatches=rgen_init_params["delay_mismatch"],
+            t_amp_max_signal_time=time_amp_init_params["max_signal_time"],
+            t_amp_delay_line_distortions=time_amp_init_params["delay_buffer_distortion_factors"],
+            t_amp_or_gate_distortions=time_amp_init_params["or_gate_signal_distortion_factors"],
+        )
+
+    @ staticmethod
+    def from_config_file(file_path: Union[str, Path]):
+        with open(file_path, 'r') as cf:
+            config = yaml.safe_load(cf.read())
+        return ToA(**config)
+
+    def __init__(
+            self,
+            clock_frequency: float,
+            clock_jitter_rms: float,
+            ctdc_buffer_delays: list[float],
+            ctdc_chan_trim_weight: float,
+            ctdc_sig_ref_weight: float,
+            ftdc_buffer_delays: list[float],
+            ftdc_chan_trim_weight: float,
+            ftdc_sig_ref_weight: float,
+            rgen_delay_mismatches: list[float],
+            t_amp_delay_line_distortions: list[float],
+            t_amp_or_gate_distortions: list[float],
+            t_amp_max_signal_time: float):
+        self.counter = Counter(
+            frequency=clock_frequency,
+            jitter_rms_ps=clock_jitter_rms)
+        self.ctdc = TDC(
+            name='CTDC',
+            buffer_delay_times=ctdc_buffer_delays,
+            max_chan_wise_impact=ctdc_chan_trim_weight,
+            max_ref_sig_impact=ctdc_sig_ref_weight)
+        self.rgen = Rgen(delay_mismatch=rgen_delay_mismatches)
+        self.t_amp = TimeAmplifier(
+            delay_buffer_distortion_factors=t_amp_delay_line_distortions,
+            or_gate_signal_distortion_factors=t_amp_or_gate_distortions,
+            max_signal_time=t_amp_max_signal_time)
+        self.ftdc = TDC(
+            name='FTDC',
+            buffer_delay_times=ftdc_buffer_delays,
+            max_chan_wise_impact=ftdc_chan_trim_weight,
+            max_ref_sig_impact=ftdc_sig_ref_weight)
+        self.nominal_ctdc_delay_time = np.mean(ctdc_buffer_delays)
+        self.nominal_ftdc_delay_time = np.mean(ftdc_buffer_delays)
         self.ctdc.sig = 0
         self.ctdc.ref = 0
-        self.ctdc.chan_toa = 31
+        self.ctdc.chan_toa = 0
         self.ftdc.sig = 0
         self.ftdc.ref = 0
-        self.ftdc.chan_toa = 31
+        self.ftdc.chan_toa = 0
         self.logger = logging.getLogger('ToA')
+
+    def export_config(self):
+        counter_params = self.counter.export_parameters()
+        ftdc_params = self.ftdc.export_parameters()
+        ctdc_params = self.ctdc.export_parameters()
+        rgen_params = self.rgen.export_parameters()
+        t_amp_params = self.t_amp.export_parameters()
+        return {"clock_frequency": counter_params["frequency"],
+                "clock_jitter_rms": counter_params["clock_jitter_rms"],
+                "ctdc_buffer_delays": ctdc_params["buffer_delay_times"],
+                "ctdc_chan_trim_weight": ctdc_params["max_chan_wise_impact"],
+                "ctdc_sig_ref_weight": ctdc_params["max_ref_sig_impact"],
+                "ftdc_buffer_delays": ftdc_params["buffer_delay_times"],
+                "ftdc_chan_trim_weight": ftdc_params["max_chan_wise_impact"],
+                "ftdc_sig_ref_weight": ftdc_params["max_ref_sig_impact"],
+                "rgen_delay_mismatches": rgen_params["delay_mismatch"],
+                "t_amp_delay_line_distortions": t_amp_params["delay_buffer_distortion_factors"],
+                "t_amp_or_gate_distortions": t_amp_params["or_gate_signal_distortion_factors"],
+                "t_amp_max_signal_time": t_amp_params["max_signal_time"]
+                }
 
     def convert(self, time_of_arrival: float, BX: int = 0, plot_data=False,
                 code_type: str = "toa"):
