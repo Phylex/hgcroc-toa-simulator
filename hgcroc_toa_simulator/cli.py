@@ -2,11 +2,13 @@
 Module containing the main command line applications that
 are available to the user
 """
+from typing import Union
 import logging
+import yaml
 from pathlib import Path
 from . import __version__
+import sys
 import click
-import yaml
 from .utils import set_up_logger
 import numpy as np
 from .toa import ToA
@@ -30,10 +32,18 @@ log_level_dict = {'DEBUG': logging.DEBUG,
               help='specify the location of the logfile',
               show_default=True)
 @click.option('-fl', '--loglevel',
-              type=click.Choice(log_level_dict.keys(),
+              type=click.Choice([str(k) for k in log_level_dict.keys()],
                                 case_sensitive=False),
               default='INFO',
               help='Set the loglevel for the log file')
+@click.option('-cf', '--config-file', type=click.Path(dir_okay=False,
+                                                      file_okay=True),
+              default=None,
+              help="path to the configuration file containing the exact "
+                   "settings for the TDC for reproducable results accross "
+                   "invocations. If this option is set the options used to "
+                   "generate the TDC parameters are ignored, the trimming "
+                   "parameters are still applied")
 @click.option('-cs', '--ctdc-sig', type=click.IntRange(0, 31),
               default=0, help='Sets CTRL_IN_SIG_CTDC_P_D of the simulated TDC')
 @click.option('-cr', '--ctdc-ref', type=click.IntRange(0, 31),
@@ -78,9 +88,13 @@ log_level_dict = {'DEBUG': logging.DEBUG,
 def cli(ctx, verbose,
         logfile: click.Path,
         loglevel: int,
-        ctdc_sig, ctdc_ref,
-        ftdc_sig, ftdc_ref, amplification_gain_code,
-        ctdc_delay_time, ctdc_buffer_count, ftdc_delay_time,
+        config_file: Union[str, None],
+        ctdc_sig: int, ctdc_ref: int,
+        ftdc_sig: int, ftdc_ref: int,
+        amplification_gain_code: int,
+        ctdc_delay_time: float,
+        ctdc_buffer_count,
+        ftdc_delay_time,
         ftdc_buffer_count,
         clock_frequency, clock_jitter_rms, max_residue):
     """
@@ -93,37 +107,40 @@ def cli(ctx, verbose,
     logger = logging.getLogger('toa-simulator')
     set_up_logger(logger, verbosity_level=verbose,
                   logfile=Path(logfile), loglevel=loglevel)
-    tdc = ToA(
-        # frequency of the clock that gives the edges to the counter
-        clock_frequency=clock_frequency,
-        # rms of the jitter of the clock in picoseconds
-        clock_jitter_rms=clock_jitter_rms,
-        # amount of buffers in the ctdc delay line
-        ctdc_buffer_count=ctdc_buffer_count,
-        # nominal delay time of a single buffer
-        ctdc_delay_time=ctdc_delay_time,
-        ctdc_delay_time_rms=2.,  # rms of the delay time of a buffer
-        # number of buffers in the ftdc delay line
-        ftdc_buffer_count=ftdc_buffer_count,
-        # nominal delay of the ftdc buffers
-        ftdc_delay_time=ftdc_delay_time,
-        ftdc_delay_time_rms=2.,  # rms of the ftdc buffer delay time
-        # rms of the mismatch of the delay time of the for the start and
-        # stop signal
-        rgen_delay_mismatch=2.,
-        # max amplification factor of the amplifier
-        amp_max_ampfactor=8,
-        # rms of the signal distortion factor from one buffer to the other in
-        # the amplifier delay line
-        amp_buffer_distortion_factor_rms=0.01,
-        # rms of the signal distortion caused by the multi input or gate that
-        # generates the pulse train
-        amp_or_gate_distortion_factor_rms=0.01,
-        # 'period' of the pulse train
-        amp_max_signal_time=max_residue,
-        ctdc_sig_ref_weight=0.2,
-        ftdc_sig_ref_weight=0.2
-    )
+    if config_file is not None:
+        tdc = ToA.from_config_file(config_file)
+    else:
+        tdc = ToA.from_parameters(
+            # frequency of the clock that gives the edges to the counter
+            clock_frequency=clock_frequency,
+            # rms of the jitter of the clock in picoseconds
+            clock_jitter_rms=clock_jitter_rms,
+            # amount of buffers in the ctdc delay line
+            ctdc_buffer_count=ctdc_buffer_count,
+            # nominal delay time of a single buffer
+            ctdc_delay_time=ctdc_delay_time,
+            ctdc_delay_time_rms=2.,  # rms of the delay time of a buffer
+            # number of buffers in the ftdc delay line
+            ftdc_buffer_count=ftdc_buffer_count,
+            # nominal delay of the ftdc buffers
+            ftdc_delay_time=ftdc_delay_time,
+            ftdc_delay_time_rms=2.,  # rms of the ftdc buffer delay time
+            # rms of the mismatch of the delay time of the for the start and
+            # stop signal
+            rgen_delay_mismatch=2.,
+            # max amplification factor of the amplifier
+            amp_max_ampfactor=8,
+            # rms of the signal distortion factor from one buffer to the other in
+            # the amplifier delay line
+            amp_buffer_distortion_factor_rms=0.01,
+            # rms of the signal distortion caused by the multi input or gate that
+            # generates the pulse train
+            amp_or_gate_distortion_factor_rms=0.01,
+            # 'period' of the pulse train
+            amp_max_signal_time=max_residue,
+            ctdc_sig_ref_weight=0.2,
+            ftdc_sig_ref_weight=0.2
+        )
     tdc.t_amp.amplification_gain_code = amplification_gain_code
     tdc.ctdc.sig = ctdc_sig
     tdc.ctdc.ref = ctdc_ref
@@ -175,6 +192,13 @@ def plot_timing(ctx, time_of_arrival, output_file):
         show=True)
 
 
+@cli.command("create-config")
+@click.argument("config-file", type=click.File(mode='w+', encoding='utf-8'))
+@click.pass_context
+def create_config(ctx, config_file):
+    config_file.write(yaml.dump(ctx.obj["tdc"].export_config()))
+
+
 @cli.command('histogram')
 @click.argument("events", type=click.IntRange(0, max_open=True))
 @click.option("-t", "--type", "tdc_type",
@@ -202,7 +226,7 @@ def plot_timing(ctx, time_of_arrival, output_file):
               show_default=True,
               help="Set the REF parameters of the FTDC that are to be plotted")
 @click.option('-c', "--colormap", type=str,
-              default='blue',
+              default='viridis',
               help="color of the histogram")
 @click.option("-w", "--width", type=click.IntRange(0, max_open=True), default=8,
               help="Width of the figure")
