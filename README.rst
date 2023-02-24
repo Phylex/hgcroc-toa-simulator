@@ -86,7 +86,7 @@ Which will draw 4 histograms in the same plot, one for each value of ``CTRL_IN_S
 
 convert-data
 ------------
-To convert data generated externally to the toa-simulator the ``convert-data`` subcommand can be used. The convert data function reads in a file
+To convert data generated externally to the toa-simulator the ``convert-data`` subcommand can be used. The convert data function reads in data from a file
 that looks similar to:
 
 ::
@@ -105,4 +105,11 @@ Each line has to have a single number on is that represents the arrival time tha
 The number of header-lines need to be passed to the ``convert-data`` command in the ``-s`` option (see the ``toa-simulator convert-data help``).
 It will produce a new-line separated sequence of ToA codes on ``stdout``, or optionally write the output to a file. The position of the output Code
 corresponds to the position of the arrival time-stamp in the input.
+
+To process the above file with the path ``example_input.txt`` the following command can be used to output the resulting ToA codes into the console:
+
+::
+
+        toa-simulator convert-data example-input.txt
+
 
