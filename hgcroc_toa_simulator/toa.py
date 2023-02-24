@@ -170,8 +170,8 @@ class TDC:
             raise ValueError(
                 " CHAN_TOA  outside of range [0, 63]"
             )
-        self._channel_private_switching_time_factor = 1 + ((
-            self._chan_toa - 32) / 32 * self._max_chan_toa_factor)
+        self._channel_private_switching_time_factor = 1 + (((
+            (self._chan_toa + 32) % 64) - 32) / 32 * self._max_chan_toa_factor)
         self._time_bin_edges_with_factors = self._time_bin_edges * \
             (self._sig_ref_buffer_switching_time_factor +
              self._channel_private_switching_time_factor) / 2
