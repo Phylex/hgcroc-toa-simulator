@@ -40,7 +40,7 @@ Editable mode allows changes made in the repository code to affect the installed
 
 Usage
 -----
-The software is built to be a command line tool. After installation_, the ``toa-simulator`` command will
+The software is built to be a command line tool. After either pypi_installation_ or source_installation_, the ``toa-simulator`` command will
 be available on the command line.
 
 All commands and subcommands provide a ``help`` function that lists all available options and shows how
