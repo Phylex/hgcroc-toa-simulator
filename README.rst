@@ -1,3 +1,4 @@
+===============================
 ToA simulation for the HGCROCv3
 ===============================
 
@@ -47,9 +48,61 @@ All commands and subcommands provide a ``help`` function that lists all availabl
 the command is to be called. The tool is quite sensitive to the exact order in whitch options, arguments
 and subcommands are written, please stick to the format outlined in the ``help`` section of the tool.
 
+The ``toa-simulator`` has a total of 5 subcommands.
+* The ``generate-data`` subcommand generates uniformily distributed events from 0 to 25000ps and converts them to ToA codes using the ToA software simulation.
+* The ``convert-data`` subcommand reads in arrival times from an input file and converts them to ToA codes which are written to ``stdout`` or a file
+* The ``histogram`` generates uniformily distributed random arrival times and creates a histogram of the resulting ToA codes. Code distributions for different 
+slow control configurations of the ToA can be drawn into the same plot.
+
+* The ``plot-timing`` shows a view of the internal state of the TDC and describes how the TDC-code was generated.
+
 Persistent configuration
 ------------------------
 If the command line utility is run multiple times in a row, it generates a new TDC with slightly different
 characteristics (in the same way the fabrication process would generate a slightly different behaviour for
 each instance of the TDC. To acheive reliable results the exact internal state can be written to a config
 file for use in later invocations.
+
+
+Examples
+========
+
+histogram
+---------
+The easiest thing to get going is to run the ``histogram`` command as follows:
+
+::
+
+        toa-simulator histogram 40000 -sh
+
+This will generate 40000 ToA codes, histogram them and then show the result on the screen. Using the ``-cs`` option we can se the results for different settings
+of the ``CTRL_IN_SIG_CTDC_P_D`` configuration parameter. This would then look like:
+
+::
+
+        toa-simulator histogram 40000 -sh -cs 0 -cs 10 -cs 20 -cs 30
+
+Which will draw 4 histograms in the same plot, one for each value of ``CTRL_IN_SIG_CTDC_P_D`` and show them together in the same histogram.
+
+convert-data
+------------
+To convert data generated externally to the toa-simulator the ``convert-data`` subcommand can be used. The convert data function reads in a file
+that looks similar to:
+
+::
+
+        Here we have some meta information
+        Arrival Time [ps]
+        402.3
+        102.2
+        803.2
+        444
+        579
+        913
+        8799
+
+Each line has to have a single number on is that represents the arrival time that is to be converted. It can have arbitrarily many header lines.
+The number of header-lines need to be passed to the ``convert-data`` command in the ``-s`` option (see the ``toa-simulator convert-data help``).
+It will produce a new-line separated sequence of ToA codes on ``stdout``, or optionally write the output to a file. The position of the output Code
+corresponds to the position of the arrival time-stamp in the input.
+

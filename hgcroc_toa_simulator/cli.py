@@ -204,6 +204,7 @@ def create_config(ctx, config_file):
 @click.option("-t", "--type", "tdc_type",
               type=click.Choice(["ctdc", "ftdc", "toa"],
                                 case_sensitive=False),
+              default="toa",
               help="determin the result plotted. toa will result in the entire ToA range being generated")
 @click.option("-o", "--output", type=click.Path(dir_okay=False), default=None,
               help="Store the resulting plot at <output>")
@@ -344,4 +345,62 @@ def generate_data(ctx, events: int, output: str) -> None:
     else:
         lines = [f'{c}\n' for c in codes]
     out.writelines(lines)
+    out.close()
+
+
+@cli.command("convert-data")
+@click.argument("input-file", type=click.File(mode='r'))
+@click.option("-s",
+              "--skip-lines",
+              type=click.IntRange(1, max_open=True),
+              help="specifies how many lines to skip at the beginning of the "
+                   " input file before reading data. Useful to ignore "
+                   "headers containing metadata")
+@click.option("-o", "--output", type=click.Path(dir_okay=False),
+              default=None,
+              help="file to write the output to. Write to stdout if not "
+                   "specified")
+@click.option("-i", "--write-input", is_flag=True,
+              default=False,
+              help="copy the input to the the output, and format the output"
+                   " as a csv file")
+@click.pass_context
+def convert_data(ctx, input_file: click.File, skip_lines: int,
+                 output: Union[str, None], write_input: bool) -> None:
+    """
+    Convert Arrival times (in picoseconds) into ToA codes.
+
+    Read data from a file and convert it to ToA codes. The data is expected
+    to be Arrival times as picoseconds in the range [0, 25000], with one 
+    arrival time per line. Whitespace on the line is ignored. The output can
+    optionally written into a file (with the -o option)
+    """
+    if skip_lines is not None:
+        _ = input_file.readlines(skip_lines)
+    toa = ctx.obj["tdc"]
+    arrival_times = []
+    input_lines = input_file.readlines()
+    for i, l in enumerate(input_lines):
+        try:
+            arrival_times.append(float(l.strip()))
+        except ValueError:
+            click.echo(f"Error reading the number on line {i}, "
+                       "unable to parse into Float")
+            return
+    toa_codes = list(map(toa.convert, arrival_times))
+    if write_input:
+        def write_lines():
+            yield "Time[ps],ToA-Code\n"
+            for i, c in zip(input_lines, toa_codes):
+                yield f'{i},{c}\n'
+    else:
+        def write_lines():
+            for c in toa_codes:
+                yield f'{c}\n'
+    if output is not None:
+        out = open(output, 'w+')
+    else:
+        out = click.get_text_stream('stdout')
+    for wl in write_lines():
+        out.write(wl)
     out.close()
