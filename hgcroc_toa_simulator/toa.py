@@ -6,6 +6,7 @@ from copy import copy
 from operator import mul
 import logging
 import numpy as np
+from typing import List
 
 
 class Counter:
@@ -48,7 +49,7 @@ class TDC:
     """
 
     def __init__(self, name: str,
-                 buffer_delay_times: list[float],
+                 buffer_delay_times: List[float],
                  max_ref_sig_impact: float = .1,
                  max_chan_wise_impact: float = .1):
         self._name = name
@@ -189,7 +190,7 @@ class TDC:
                         doc="Parameter to change the buffer delay time of "
                             "the TDC buffer chain, neutral point is 31")
 
-    def convert(self, start_time: float, stop_time: float, delta_t_uncertainty: float = 0) -> list[int]:
+    def convert(self, start_time: float, stop_time: float, delta_t_uncertainty: float = 0) -> List[int]:
         """
         Calculate the thermometer code produced by the delay line TDC.
         This function does not perform any encoding of the value
@@ -243,7 +244,7 @@ class Rgen:
                           for _ in range(ctdc_buffer_count - 2)]
         return dict(delay_mismatch=delay_mismatch)
 
-    def __init__(self, delay_mismatch: list[float]):
+    def __init__(self, delay_mismatch: List[float]):
         """
         Initialise the residue generator. The important thing is to generate the
         mismatch between the two buffers that introduce the \tau_R into the system
@@ -263,7 +264,7 @@ class Rgen:
         return {"delay_mismatch": self._delay_mismatch}
 
     def generate_residue(self, ctdc: TDC,
-                         ctdc_code: list[int],
+                         ctdc_code: List[int],
                          rgen_set_time: float,
                          reset_override_time: float):
         """
@@ -320,8 +321,8 @@ class TimeAmplifier:
             max_signal_time=max_signal_time)
 
     def __init__(self,
-                 delay_buffer_distortion_factors: list[float],
-                 or_gate_signal_distortion_factors: list[float],
+                 delay_buffer_distortion_factors: List[float],
+                 or_gate_signal_distortion_factors: List[float],
                  max_signal_time: float,
                  amplification_gain_code: int = 0,
                  ):
@@ -446,15 +447,15 @@ class ToA:
             self,
             clock_frequency: float,
             clock_jitter_rms: float,
-            ctdc_buffer_delays: list[float],
+            ctdc_buffer_delays: List[float],
             ctdc_chan_trim_weight: float,
             ctdc_sig_ref_weight: float,
-            ftdc_buffer_delays: list[float],
+            ftdc_buffer_delays: List[float],
             ftdc_chan_trim_weight: float,
             ftdc_sig_ref_weight: float,
-            rgen_delay_mismatches: list[float],
-            t_amp_delay_line_distortions: list[float],
-            t_amp_or_gate_distortions: list[float],
+            rgen_delay_mismatches: List[float],
+            t_amp_delay_line_distortions: List[float],
+            t_amp_or_gate_distortions: List[float],
             t_amp_max_signal_time: float):
         self.counter = Counter(
             frequency=clock_frequency,
