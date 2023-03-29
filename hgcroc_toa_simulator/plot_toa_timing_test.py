@@ -5,7 +5,10 @@ from .toa import ToA
 
 
 # use qt backend
-matplotlib.use("qtagg")
+try:
+    matplotlib.use("qtagg")
+except ValueError:
+    matplotlib.use("cairo")
 matplotlib.rcParams['toolbar'] = 'None'
 
 
