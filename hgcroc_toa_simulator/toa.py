@@ -222,7 +222,7 @@ class TDC:
         return self._time_bin_edges_with_factors[buffer_output_index]
 
     @staticmethod
-    def encode(tdc_thermometer_code: list[int]) -> int:
+    def encode(tdc_thermometer_code: List[int]) -> int:
         """
         Convert the list of buffer output states into a number that can be used by the
         calculation logic for the final ToA/ToT values
